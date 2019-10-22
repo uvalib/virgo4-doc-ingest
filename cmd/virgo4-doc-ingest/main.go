@@ -1,15 +1,11 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
-	//"fmt"
 	"io"
 	"log"
 	"os"
 	"time"
 
-	"github.com/antchfx/xmlquery"
 	"github.com/uvalib/virgo4-sqs-sdk/awssqs"
 )
 
@@ -27,96 +23,135 @@ func main() {
 	aws, err := awssqs.NewAwsSqs(awssqs.AwsSqsConfig{MessageBucketName: cfg.MessageBucketName})
 	fatalIfError(err)
 
-	// get the queue handle from the queue name
-	outQueueHandle, err := aws.QueueHandle(cfg.OutQueueName)
+	// get the queue handles from the queue name
+	inQueueHandle, err := aws.QueueHandle(cfg.InQueueName)
+	fatalIfError(err)
+
+	outQueue1Handle, err := aws.QueueHandle(cfg.OutQueue1Name)
+	fatalIfError(err)
+
+	outQueue2Handle, err := aws.QueueHandle(cfg.OutQueue2Name)
 	fatalIfError(err)
 
 	// create the record channel
-	outboundMessageChan := make(chan awssqs.Message, cfg.WorkerQueueSize)
+	recordsChan := make(chan Record, cfg.WorkerQueueSize)
 
 	// start workers here
 	for w := 1; w <= cfg.Workers; w++ {
-		go worker(w, cfg, aws, outboundMessageChan, outQueueHandle)
+		go worker(w, *cfg, aws, outQueue1Handle, outQueue2Handle, recordsChan)
 	}
 
-	file, err := os.Open(cfg.FileName)
-	fatalIfError(err)
-	defer file.Close()
-
-	reader := bufio.NewReader(file)
-
-	count := uint(0)
-	start := time.Now()
-
 	for {
+		// notification that there is one or more new ingest files to be processed
+		inbound, receiptHandle, e := getInboundNotification(*cfg, aws, inQueueHandle)
+		fatalIfError(e)
 
-		line, err := reader.ReadString('\n')
+		// download each file and validate it
+		localNames := make([]string, 0, len(inbound))
+		for ix, f := range inbound {
 
-		if err != nil {
-			// are we done
-			if err == io.EOF {
+			// download the file
+			localFile, e := s3download(cfg.DownloadDir, f.SourceBucket, f.SourceKey)
+			fatalIfError(e)
+
+			// save the local name, we will need it later
+			localNames = append(localNames, localFile)
+
+			log.Printf("Validating %s/%s (%s)", f.SourceBucket, f.SourceKey, localNames[ix])
+
+			// create a new loader
+			loader, e := NewRecordLoader(localNames[ix])
+			fatalIfError(e)
+
+			// validate the file
+			e = loader.Validate()
+			loader.Done()
+			if e != nil {
+				log.Printf("ERROR: %s/%s (%s) appears to be invalid, ignoring it", f.SourceBucket, f.SourceKey, localNames[ix])
+				err = e
 				break
-			} else {
-				fatalIfError(err)
 			}
 		}
 
-		count++
-		id := extractId(line)
-		outboundMessageChan <- constructMessage(cfg.DataSourceName, id, line)
+		// one of the files was invalid, we need to ignore the entire batch and delete the local files
+		if err != nil {
+			for _, f := range localNames {
+				e := os.Remove(f)
+				fatalIfError(e)
+			}
 
-		if count%1000 == 0 {
+			// go back to waiting for the next notification
+			continue
+		}
+
+		// if we got here without an error then all the files are valid to be loaded... we can delete the inbound message
+		// because it has been processed
+
+		delMessages := make([]awssqs.Message, 0, 1)
+		delMessages = append(delMessages, awssqs.Message{ReceiptHandle: receiptHandle})
+		opStatus, err := aws.BatchMessageDelete(inQueueHandle, delMessages)
+		fatalIfError(err)
+
+		// check the operation results
+		for ix, op := range opStatus {
+			if op == false {
+				log.Printf("ERROR: message %d failed to delete", ix)
+			}
+		}
+
+		// now we can process each of the inbound files
+		for ix, f := range inbound {
+
+			start := time.Now()
+			log.Printf("Processing %s/%s (%s)", f.SourceBucket, f.SourceKey, localNames[ix])
+
+			loader, err := NewRecordLoader(localNames[ix])
+			// fatal fail here because we have already validated the file and believe it to be correct so this
+			// is some other sort of failure
+			fatalIfError(err)
+
+			// get the first record
+			count := 0
+			rec, err := loader.First()
+			if err != nil {
+				// are we done
+				if err == io.EOF {
+					log.Printf("WARNING: EOF on first read, looks like an empty file")
+				} else {
+					// fatal fail here because we have already validated the file and believe it to be correct so this
+					// is some other sort of failure
+					log.Fatal(err)
+				}
+			}
+
+			// we can get here with an error if the first read yields EOF
+			if err == nil {
+				for {
+					count++
+					recordsChan <- rec
+
+					rec, err = loader.Next()
+					if err != nil {
+						if err == io.EOF {
+							// this is expected, break out of the processing loop
+							break
+						}
+						// fatal fail here because we have already validated the file and believe it to be correct so this
+						// is some other sort of failure
+						log.Fatal(err)
+					}
+				}
+			}
+
+			loader.Done()
 			duration := time.Since(start)
-			log.Printf("Processed %d records (%0.2f tps)", count, float64(count)/duration.Seconds())
+			log.Printf("Done processing %s/%s (%s). %d records (%0.2f tps)", f.SourceBucket, f.SourceKey, localNames[ix], count, float64(count)/duration.Seconds())
+
+			// file has been ingested, remove it
+			err = os.Remove(localNames[ix])
+			fatalIfError(err)
 		}
-
-		if cfg.MaxCount > 0 && count >= cfg.MaxCount {
-			log.Printf("Terminating after %d messages", count)
-			break
-		}
 	}
-
-	duration := time.Since(start)
-	log.Printf("Done, processed %d records in %0.2f seconds (%0.2f tps)", count, duration.Seconds(), float64(count)/duration.Seconds())
-
-	for {
-		if len(outboundMessageChan) == 0 {
-			time.Sleep(10 * time.Second)
-			break
-		}
-		log.Printf("Waiting for workers to complete... zzzz")
-		time.Sleep(1 * time.Second)
-	}
-}
-
-func constructMessage(datasource string, id string, message string) awssqs.Message {
-
-	attributes := make([]awssqs.Attribute, 0, 3)
-	if len(id) != 0 {
-		//log.Printf("Found ID: [%s]", id )
-		attributes = append(attributes, awssqs.Attribute{ Name: "id", Value: id})
-	}
-	//attributes = append( attributes, awssqs.Attribute{ Name: "src", Value: filename } )
-	attributes = append(attributes, awssqs.Attribute{Name: "type", Value: "xml"})
-	attributes = append(attributes, awssqs.Attribute{Name: "source", Value: datasource})
-	return awssqs.Message{Attribs: attributes, Payload: []byte(message)}
-}
-
-func extractId(buffer string) string {
-
-	// generate a query structure from the body
-	doc, err := xmlquery.Parse(bytes.NewReader([]byte(buffer)))
-	if err != nil {
-		return ""
-	}
-
-	// attempt to extract the statusNode field
-	idNode := xmlquery.FindOne(doc, "//doc/field[@name='id']")
-	if idNode == nil {
-		return ""
-	}
-
-	return idNode.InnerText()
 }
 
 //

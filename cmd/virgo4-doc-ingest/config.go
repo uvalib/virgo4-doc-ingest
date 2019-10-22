@@ -8,13 +8,14 @@ import (
 
 // ServiceConfig defines all of the service configuration parameters
 type ServiceConfig struct {
-	OutQueueName string // SQS queue name for outbound documents
+	InQueueName   string // SQS queue name for inbound documents
+	OutQueue1Name string // SQS queue name for outbound documents
+	OutQueue2Name string // SQS queue name for outbound documents
+	PollTimeOut   int64  // the SQS queue timeout (in seconds)
 
+	//DataSourceName    string // the name to associate the data with. Each record has metadata showing this value
 	MessageBucketName string // the bucket to use for large messages
-
-	DataSourceName string // the name to associate the data with. Each record has metadata showing this value
-	FileName       string // the input file name
-	MaxCount       uint   // the maximum document count to ingest, 0 is no limit
+	DownloadDir       string // the S3 file download directory (local)
 
 	WorkerQueueSize int // the inbound message queue size to feed the workers
 	Workers         int // the number of worker processes
@@ -56,19 +57,23 @@ func LoadConfiguration() *ServiceConfig {
 
 	var cfg ServiceConfig
 
-	cfg.OutQueueName = ensureSetAndNonEmpty("VIRGO4_SIMPLE_INGEST_OUT_QUEUE")
+	cfg.InQueueName = ensureSetAndNonEmpty("VIRGO4_DOC_INGEST_IN_QUEUE")
+	cfg.OutQueue1Name = ensureSetAndNonEmpty("VIRGO4_DOC_INGEST_OUT_QUEUE_1")
+	cfg.OutQueue2Name = ensureSetAndNonEmpty("VIRGO4_DOC_INGEST_OUT_QUEUE_2")
+	cfg.PollTimeOut = int64(envToInt("VIRGO4_DOC_INGEST_QUEUE_POLL_TIMEOUT"))
+	//cfg.DataSourceName = ensureSetAndNonEmpty("VIRGO4_DOC_INGEST_DATA_SOURCE")
 	cfg.MessageBucketName = ensureSetAndNonEmpty("VIRGO4_SQS_MESSAGE_BUCKET")
-	cfg.DataSourceName = ensureSetAndNonEmpty("VIRGO4_SIMPLE_INGEST_DATA_SOURCE")
-	cfg.MaxCount = uint(envToInt("VIRGO4_SIMPLE_INGEST_MAX_COUNT"))
-	cfg.FileName = ensureSetAndNonEmpty("VIRGO4_SIMPLE_INGEST_FILE_NAME")
-	cfg.WorkerQueueSize = envToInt("VIRGO4_SIMPLE_INGEST_WORK_QUEUE_SIZE")
-	cfg.Workers = envToInt("VIRGO4_SIMPLE_INGEST_WORKERS")
+	cfg.DownloadDir = ensureSetAndNonEmpty("VIRGO4_DOC_INGEST_DOWNLOAD_DIR")
+	cfg.WorkerQueueSize = envToInt("VIRGO4_DOC_INGEST_WORK_QUEUE_SIZE")
+	cfg.Workers = envToInt("VIRGO4_DOC_INGEST_WORKERS")
 
-	log.Printf("[CONFIG] OutQueueName         = [%s]", cfg.OutQueueName)
-	log.Printf("[CONFIG] DataSourceName       = [%s]", cfg.DataSourceName)
+	log.Printf("[CONFIG] InQueueName          = [%s]", cfg.InQueueName)
+	log.Printf("[CONFIG] OutQueue1Name        = [%s]", cfg.OutQueue1Name)
+	log.Printf("[CONFIG] OutQueue2Name        = [%s]", cfg.OutQueue2Name)
+	log.Printf("[CONFIG] PollTimeOut          = [%d]", cfg.PollTimeOut)
+	//log.Printf("[CONFIG] DataSourceName       = [%s]", cfg.DataSourceName)
 	log.Printf("[CONFIG] MessageBucketName    = [%s]", cfg.MessageBucketName)
-	log.Printf("[CONFIG] FileName             = [%s]", cfg.FileName)
-	log.Printf("[CONFIG] MaxCount             = [%d]", cfg.MaxCount)
+	log.Printf("[CONFIG] DownloadDir          = [%s]", cfg.DownloadDir)
 	log.Printf("[CONFIG] WorkerQueueSize      = [%d]", cfg.WorkerQueueSize)
 	log.Printf("[CONFIG] Workers              = [%d]", cfg.Workers)
 

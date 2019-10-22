@@ -1,125 +1,133 @@
 package main
 
 import (
+	"github.com/uvalib/virgo4-sqs-sdk/awssqs"
 	"log"
 	"time"
-
-	"github.com/uvalib/virgo4-sqs-sdk/awssqs"
 )
 
-// time to wait for inbound messages before doing something else
-var waitTimeout = 5 * time.Second
+// time to wait before flushing pending records
+var flushTimeout = 5 * time.Second
 
-func worker(id int, config *ServiceConfig, aws awssqs.AWS_SQS, inbound <-chan awssqs.Message, outQueue awssqs.QueueHandle) {
+func worker(id int, config ServiceConfig, aws awssqs.AWS_SQS, queue1 awssqs.QueueHandle, queue2 awssqs.QueueHandle, records <-chan Record) {
 
-	// keep a list of the messages queued so we can delete them once they are sent to SOLR
-	queued := make([]awssqs.Message, 0, awssqs.MAX_SQS_BLOCK_COUNT)
-	var message awssqs.Message
-
-	blocksize := uint(0)
-	totalCount := uint(0)
-	start := time.Now()
-
+	count := uint(1)
+	messages := make([]awssqs.Message, 0, awssqs.MAX_SQS_BLOCK_COUNT)
+	var record Record
 	for {
 
-		arrived := false
+		timeout := false
 
 		// process a message or wait...
 		select {
-		case message = <-inbound:
-			arrived = true
+		case record = <-records:
 			break
-		case <-time.After(waitTimeout):
+		case <-time.After(flushTimeout):
+			timeout = true
 			break
 		}
 
-		// we have an inbound message to process
-		if arrived == true {
+		// did we timeout, if not we have a message to process
+		if timeout == false {
 
-			// update counts
-			blocksize++
-			totalCount++
+			messages = append(messages, constructMessage(record))
 
-			// add it to the queued list
-			queued = append(queued, message)
-			if blocksize == awssqs.MAX_SQS_BLOCK_COUNT {
-				err := processesOutboundBlock(id, aws, queued, outQueue)
+			// have we reached a block size limit
+			if count%awssqs.MAX_SQS_BLOCK_COUNT == 0 {
+
+				// send the block
+				err := sendOutboundMessages(config, aws, queue1, queue2, messages)
 				if err != nil {
-					log.Fatal(err)
+					if err != awssqs.OneOrMoreOperationsUnsuccessfulError {
+						fatalIfError(err)
+					}
 				}
 
-				// reset the counts
-				blocksize = 0
-				queued = queued[:0]
+				// reset the block
+				messages = messages[:0]
 			}
+			count++
 
-			if totalCount%1000 == 0 {
-				duration := time.Since(start)
-				log.Printf("Worker %d: processed %d messages (%0.2f tps)", id, totalCount, float64(totalCount)/duration.Seconds())
+			if count%1000 == 0 {
+				log.Printf("Worker %d processed %d records", id, count)
 			}
-
 		} else {
 
-			// we timed out, probably best to send anything pending
-			if blocksize != 0 {
-				err := processesOutboundBlock(id, aws, queued, outQueue)
-				fatalIfError(err)
+			// we timed out waiting for new messages, let's flush what we have (if anything)
+			if len(messages) != 0 {
 
-				duration := time.Since(start)
-				log.Printf("Worker %d: processed %d messages (flushing) (%0.2f tps)", id, totalCount, float64(totalCount)/duration.Seconds())
+				// send the block
+				err := sendOutboundMessages(config, aws, queue1, queue2, messages)
+				if err != nil {
+					if err != awssqs.OneOrMoreOperationsUnsuccessfulError {
+						fatalIfError(err)
+					}
+				}
 
-				// reset the counts
-				blocksize = 0
-				queued = queued[:0]
+				// reset the block
+				messages = messages[:0]
+
+				log.Printf("Worker %d processed %d records (flushing)", id, count)
 			}
 
-			// reset the time
-			start = time.Now()
+			// reset the count
+			count = 1
 		}
 	}
+
+	// should never get here
 }
 
-func processesOutboundBlock(id int, aws awssqs.AWS_SQS, messages []awssqs.Message, outQueue awssqs.QueueHandle) error {
+func constructMessage(record Record) awssqs.Message {
 
-	// attempt to send the messages
-	opStatus, err := aws.BatchMessagePut(outQueue, messages)
+	//payload := fmt.Sprintf( xmlDocFormatter, id )
+	attributes := make([]awssqs.Attribute, 0, 4)
+	attributes = append(attributes, awssqs.Attribute{Name: awssqs.AttributeKeyRecordId, Value: record.Id()})
+	attributes = append(attributes, awssqs.Attribute{Name: awssqs.AttributeKeyRecordType, Value: awssqs.AttributeValueRecordTypeXml})
+	attributes = append(attributes, awssqs.Attribute{Name: awssqs.AttributeKeyRecordOperation, Value: awssqs.AttributeValueRecordOperationUpdate})
+	//attributes = append(attributes, awssqs.Attribute{Name: awssqs.AttributeKeyRecordSource, Value: datasource})
+	return awssqs.Message{Attribs: attributes, Payload: record.Raw()}
+}
+
+func sendOutboundMessages(config ServiceConfig, aws awssqs.AWS_SQS, queue1 awssqs.QueueHandle, queue2 awssqs.QueueHandle, batch []awssqs.Message) error {
+
+	opStatus, err := aws.BatchMessagePut(queue1, batch)
 	if err != nil {
 		if err != awssqs.OneOrMoreOperationsUnsuccessfulError {
 			return err
 		}
 	}
 
-	// if one or more message failed to send, retry...
+	// if one or more message failed to send, report the error
 	if err == awssqs.OneOrMoreOperationsUnsuccessfulError {
-		retryMessages := make([]awssqs.Message, 0, awssqs.MAX_SQS_BLOCK_COUNT)
 
 		// check the operation results
 		for ix, op := range opStatus {
 			if op == false {
-				log.Printf("WARNING: message %d failed to send to queue, retrying", ix)
-				retryMessages = append(retryMessages, messages[ix])
-			}
-		}
-
-		// attempt another send of the ones that failed last time
-		opStatus, err = aws.BatchMessagePut(outQueue, retryMessages)
-		if err != nil {
-			if err != awssqs.OneOrMoreOperationsUnsuccessfulError {
-				return err
-			}
-		}
-
-		// did we fail again
-		if err == awssqs.OneOrMoreOperationsUnsuccessfulError {
-			for ix, op := range opStatus {
-				if op == false {
-					log.Printf("ERROR: message %d failed to send to queue, giving up", ix)
-				}
+				log.Printf("WARNING: message %d failed to send to queue 1", ix)
 			}
 		}
 	}
 
-	return nil
+	//	opStatus, err = aws.BatchMessagePut(queue2, batch)
+	//	if err != nil {
+	//		if err != awssqs.OneOrMoreOperationsUnsuccessfulError {
+	//			return err
+	//		}
+	//	}
+	//
+	//	// if one or more message failed to send, report the error
+	//	if err == awssqs.OneOrMoreOperationsUnsuccessfulError {
+	//
+	//		// check the operation results
+	//		for ix, op := range opStatus {
+	//			if op == false {
+	//				log.Printf("WARNING: message %d failed to send to queue 2", ix)
+	//			}
+	//		}
+	//	}
+	//
+	return err
 }
 
 //
