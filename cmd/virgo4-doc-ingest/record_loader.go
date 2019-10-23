@@ -2,15 +2,19 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"strings"
+
+	"github.com/antchfx/xmlquery"
 )
 
 var BadRecordError = fmt.Errorf("Bad record encountered")
 var BadRecordIdError = fmt.Errorf("Bad record identifier")
+var MissingRecordIdError = fmt.Errorf("Missing record identifier")
 var FileNotOpenError = fmt.Errorf("File is not open")
 
 // the RecordLoader interface
@@ -128,16 +132,22 @@ func (l *recordLoaderImpl) Done() {
 
 func (l *recordLoaderImpl) recordRead() (Record, error) {
 
-	id, err := l.Reader.ReadString('\n')
+	line, err := l.Reader.ReadString('\n')
 	if err != nil {
 		return nil, err
 	}
 
 	// remove the newline
-	id = strings.TrimSuffix(id, "\n")
+	line = strings.TrimSuffix(line, "\n")
 
-	if len(id) == 0 {
+	if len(line) == 0 {
 		return nil, BadRecordError
+	}
+
+	// attempt to extract the ID from the payload
+	id, err := l.extractId( line )
+	if err != nil {
+		return nil, err
 	}
 
 	if id[0] != 'u' {
@@ -145,7 +155,24 @@ func (l *recordLoaderImpl) recordRead() (Record, error) {
 		return nil, BadRecordIdError
 	}
 
-	return &recordImpl{RecordId: id}, nil
+	return &recordImpl{RecordId: id, RawBytes: []byte( line )}, nil
+}
+
+func (l *recordLoaderImpl) extractId( buffer string ) (string, error) {
+
+	// generate a query structure from the body
+	doc, err := xmlquery.Parse(bytes.NewReader([]byte(buffer) ) )
+	if err != nil {
+		return "", err
+	}
+
+	// attempt to extract the statusNode field
+	idNode := xmlquery.FindOne(doc, "//doc/field[@name='id']")
+	if idNode == nil {
+		return "", MissingRecordIdError
+	}
+
+	return idNode.InnerText(), nil
 }
 
 func (r *recordImpl) Id() string {
