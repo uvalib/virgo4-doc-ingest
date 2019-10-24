@@ -53,7 +53,7 @@ func s3download(downloadDir string, bucket string, object string, expectedSize i
 	if expectedSize != fileSize {
 
 		// remove the file
-		_ := os.Remove(file.Name())
+		_ = os.Remove(file.Name())
 		return "", fmt.Errorf( "download failure. expected %d bytes, received %d bytes", expectedSize, fileSize )
 	}
 
