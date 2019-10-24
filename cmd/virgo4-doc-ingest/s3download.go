@@ -26,7 +26,7 @@ func init() {
 
 // taken from https://github.com/awsdocs/aws-doc-sdk-examples/blob/master/go/example_code/s3/s3_download_object.go
 
-func s3download(downloadDir string, bucket string, object string, expectedSize int64 ) (string, error) {
+func s3download(downloadDir string, bucket string, object string, expectedSize int64) (string, error) {
 
 	file, err := ioutil.TempFile(downloadDir, "")
 	if err != nil {
@@ -54,7 +54,7 @@ func s3download(downloadDir string, bucket string, object string, expectedSize i
 
 		// remove the file
 		_ = os.Remove(file.Name())
-		return "", fmt.Errorf( "download failure. expected %d bytes, received %d bytes", expectedSize, fileSize )
+		return "", fmt.Errorf("download failure. expected %d bytes, received %d bytes", expectedSize, fileSize)
 	}
 
 	duration := time.Since(start)

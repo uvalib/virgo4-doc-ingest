@@ -145,7 +145,7 @@ func (l *recordLoaderImpl) recordRead() (Record, error) {
 	}
 
 	// attempt to extract the ID from the payload
-	id, err := l.extractId( line )
+	id, err := l.extractId(line)
 	if err != nil {
 		return nil, err
 	}
@@ -155,13 +155,13 @@ func (l *recordLoaderImpl) recordRead() (Record, error) {
 		return nil, BadRecordIdError
 	}
 
-	return &recordImpl{RecordId: id, RawBytes: []byte( line )}, nil
+	return &recordImpl{RecordId: id, RawBytes: []byte(line)}, nil
 }
 
-func (l *recordLoaderImpl) extractId( buffer string ) (string, error) {
+func (l *recordLoaderImpl) extractId(buffer string) (string, error) {
 
 	// generate a query structure from the body
-	doc, err := xmlquery.Parse(bytes.NewReader([]byte(buffer) ) )
+	doc, err := xmlquery.Parse(bytes.NewReader([]byte(buffer)))
 	if err != nil {
 		return "", err
 	}
