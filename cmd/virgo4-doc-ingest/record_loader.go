@@ -71,9 +71,13 @@ func (l *recordLoaderImpl) Validate() error {
 			log.Printf("WARNING: EOF on first read, looks like an empty file")
 			return nil
 		} else {
+			log.Printf("ERROR: validation failure on record index 0")
 			return err
 		}
 	}
+
+	// used for reporting
+	recordIndex := 1
 
 	// read all the records and bail on the first failure except EOF
 	for {
@@ -84,9 +88,11 @@ func (l *recordLoaderImpl) Validate() error {
 			if err == io.EOF {
 				break
 			} else {
+				log.Printf("ERROR: validation failure on record index %d", recordIndex)
 				return err
 			}
 		}
+		recordIndex++
 	}
 
 	// everything is OK
