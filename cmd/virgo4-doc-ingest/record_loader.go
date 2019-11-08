@@ -12,10 +12,10 @@ import (
 	"github.com/antchfx/xmlquery"
 )
 
-var BadRecordError = fmt.Errorf("Bad record encountered")
-var BadRecordIdError = fmt.Errorf("Bad record identifier")
-var MissingRecordIdError = fmt.Errorf("Missing record identifier")
-var FileNotOpenError = fmt.Errorf("File is not open")
+var ErrBadRecord = fmt.Errorf("bad record encountered")
+var ErrBadRecordId = fmt.Errorf("bad record identifier")
+var ErrMissingRecordId = fmt.Errorf("missing record identifier")
+var ErrFileNotOpen = fmt.Errorf("file is not open")
 
 // the RecordLoader interface
 type RecordLoader interface {
@@ -60,7 +60,7 @@ func NewRecordLoader(filename string) (RecordLoader, error) {
 func (l *recordLoaderImpl) Validate() error {
 
 	if l.File == nil {
-		return FileNotOpenError
+		return ErrFileNotOpen
 	}
 
 	// get the first record and error out if bad. An EOF is OK, just means the file is empty
@@ -102,7 +102,7 @@ func (l *recordLoaderImpl) Validate() error {
 func (l *recordLoaderImpl) First() (Record, error) {
 
 	if l.File == nil {
-		return nil, FileNotOpenError
+		return nil, ErrFileNotOpen
 	}
 
 	// go to the start of the file and then get the next record
@@ -117,7 +117,7 @@ func (l *recordLoaderImpl) First() (Record, error) {
 func (l *recordLoaderImpl) Next() (Record, error) {
 
 	if l.File == nil {
-		return nil, FileNotOpenError
+		return nil, ErrFileNotOpen
 	}
 
 	rec, err := l.recordRead()
@@ -147,7 +147,7 @@ func (l *recordLoaderImpl) recordRead() (Record, error) {
 	line = strings.TrimSuffix(line, "\n")
 
 	if len(line) == 0 {
-		return nil, BadRecordError
+		return nil, ErrBadRecord
 	}
 
 	// attempt to extract the ID from the payload
@@ -158,7 +158,7 @@ func (l *recordLoaderImpl) recordRead() (Record, error) {
 
 	if id[0] != 'u' {
 		log.Printf("ERROR: record id is suspect (%s)", id)
-		return nil, BadRecordIdError
+		return nil, ErrBadRecordId
 	}
 
 	return &recordImpl{RecordId: id, RawBytes: []byte(line)}, nil
@@ -175,7 +175,7 @@ func (l *recordLoaderImpl) extractId(buffer string) (string, error) {
 	// attempt to extract the statusNode field
 	idNode := xmlquery.FindOne(doc, "//doc/field[@name='id']")
 	if idNode == nil {
-		return "", MissingRecordIdError
+		return "", ErrMissingRecordId
 	}
 
 	return idNode.InnerText(), nil
