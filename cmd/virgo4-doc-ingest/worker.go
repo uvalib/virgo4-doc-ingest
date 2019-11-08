@@ -37,7 +37,7 @@ func worker(id int, config ServiceConfig, aws awssqs.AWS_SQS, queue1 awssqs.Queu
 				// send the block
 				err := sendOutboundMessages(config, aws, queue1, queue2, messages)
 				if err != nil {
-					if err != awssqs.OneOrMoreOperationsUnsuccessfulError {
+					if err != awssqs.ErrOneOrMoreOperationsUnsuccessful {
 						fatalIfError(err)
 					}
 				}
@@ -58,7 +58,7 @@ func worker(id int, config ServiceConfig, aws awssqs.AWS_SQS, queue1 awssqs.Queu
 				// send the block
 				err := sendOutboundMessages(config, aws, queue1, queue2, messages)
 				if err != nil {
-					if err != awssqs.OneOrMoreOperationsUnsuccessfulError {
+					if err != awssqs.ErrOneOrMoreOperationsUnsuccessful {
 						fatalIfError(err)
 					}
 				}
@@ -92,13 +92,13 @@ func sendOutboundMessages(config ServiceConfig, aws awssqs.AWS_SQS, queue1 awssq
 
 	opStatus, err1 := aws.BatchMessagePut(queue1, batch)
 	if err1 != nil {
-		if err1 != awssqs.OneOrMoreOperationsUnsuccessfulError {
+		if err1 != awssqs.ErrOneOrMoreOperationsUnsuccessful {
 			return err1
 		}
 	}
 
 	// if one or more message failed to send, report the error
-	if err1 == awssqs.OneOrMoreOperationsUnsuccessfulError {
+	if err1 == awssqs.ErrOneOrMoreOperationsUnsuccessful {
 
 		// check the operation results
 		for ix, op := range opStatus {
@@ -110,13 +110,13 @@ func sendOutboundMessages(config ServiceConfig, aws awssqs.AWS_SQS, queue1 awssq
 
 	//	opStatus, err2 = aws.BatchMessagePut(queue2, batch)
 	//	if err2 != nil {
-	//		if err2 != awssqs.OneOrMoreOperationsUnsuccessfulError {
+	//		if err2 != awssqs.ErrOneOrMoreOperationsUnsuccessful {
 	//			return err2
 	//		}
 	//	}
 	//
 	//	// if one or more message failed to send, report the error
-	//	if err2 == awssqs.OneOrMoreOperationsUnsuccessfulError {
+	//	if err2 == awssqs.ErrOneOrMoreOperationsUnsuccessful {
 	//
 	//		// check the operation results
 	//		for ix, op := range opStatus {
@@ -128,9 +128,9 @@ func sendOutboundMessages(config ServiceConfig, aws awssqs.AWS_SQS, queue1 awssq
 	//
 
 	// report that some of the messages were not processed
-	if err1 == awssqs.OneOrMoreOperationsUnsuccessfulError {
-		//	if err1 == awssqs.OneOrMoreOperationsUnsuccessfulError || err2 == awssqs.OneOrMoreOperationsUnsuccessfulError {
-		return awssqs.OneOrMoreOperationsUnsuccessfulError
+	if err1 == awssqs.ErrOneOrMoreOperationsUnsuccessful {
+		//	if err1 == awssqs.ErrOneOrMoreOperationsUnsuccessful || err2 == awssqs.ErrOneOrMoreOperationsUnsuccessful {
+		return awssqs.ErrOneOrMoreOperationsUnsuccessful
 	}
 
 	return nil
