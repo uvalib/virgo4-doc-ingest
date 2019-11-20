@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/antchfx/xmlquery"
 	"github.com/uvalib/virgo4-sqs-sdk/awssqs"
 )
 
@@ -35,6 +36,9 @@ func main() {
 
 	// create the record channel
 	recordsChan := make(chan Record, cfg.WorkerQueueSize)
+
+	// disable the cache feature
+	xmlquery.DisableSelectorCache = true
 
 	// start workers here
 	for w := 1; w <= cfg.Workers; w++ {
