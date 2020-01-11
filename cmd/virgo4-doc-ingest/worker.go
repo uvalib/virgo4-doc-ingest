@@ -9,6 +9,9 @@ import (
 // time to wait before flushing pending records
 var flushTimeout = 5 * time.Second
 
+// number of times to retry a message put before giving up and terminating
+var sendRetries = uint(3)
+
 func worker(id int, config ServiceConfig, aws awssqs.AWS_SQS, queue1 awssqs.QueueHandle, queue2 awssqs.QueueHandle, records <-chan Record) {
 
 	count := uint(0)
@@ -35,12 +38,8 @@ func worker(id int, config ServiceConfig, aws awssqs.AWS_SQS, queue1 awssqs.Queu
 			if count != 0 && count%awssqs.MAX_SQS_BLOCK_COUNT == awssqs.MAX_SQS_BLOCK_COUNT-1 {
 
 				// send the block
-				err := sendOutboundMessages(config, aws, queue1, queue2, messages)
-				if err != nil {
-					if err != awssqs.ErrOneOrMoreOperationsUnsuccessful {
-						fatalIfError(err)
-					}
-				}
+				err := sendOutboundMessages(aws, queue1, queue2, messages)
+				fatalIfError(err)
 
 				// reset the block
 				messages = messages[:0]
@@ -56,12 +55,8 @@ func worker(id int, config ServiceConfig, aws awssqs.AWS_SQS, queue1 awssqs.Queu
 			if len(messages) != 0 {
 
 				// send the block
-				err := sendOutboundMessages(config, aws, queue1, queue2, messages)
-				if err != nil {
-					if err != awssqs.ErrOneOrMoreOperationsUnsuccessful {
-						fatalIfError(err)
-					}
-				}
+				err := sendOutboundMessages(aws, queue1, queue2, messages)
+				fatalIfError(err)
 
 				// reset the block
 				messages = messages[:0]
@@ -88,50 +83,38 @@ func constructMessage(record Record) awssqs.Message {
 	return awssqs.Message{Attribs: attributes, Payload: record.Raw()}
 }
 
-func sendOutboundMessages(config ServiceConfig, aws awssqs.AWS_SQS, queue1 awssqs.QueueHandle, queue2 awssqs.QueueHandle, batch []awssqs.Message) error {
+func sendOutboundMessages(aws awssqs.AWS_SQS, queue1 awssqs.QueueHandle, queue2 awssqs.QueueHandle, batch []awssqs.Message) error {
 
-	opStatus, err1 := aws.BatchMessagePut(queue1, batch)
+	opStatus1, err1 := aws.BatchMessagePut(queue1, batch)
+
 	if err1 != nil {
-		if err1 != awssqs.ErrOneOrMoreOperationsUnsuccessful {
-			return err1
+		// if an error we can handle, retry
+		if err1 == awssqs.ErrOneOrMoreOperationsUnsuccessful {
+			log.Printf("WARNING: one or more items failed to send to queue 1, retrying...")
+
+			// retry the failed items and bail out if we cannot retry
+			err1 = aws.MessagePutRetry(queue1, batch, opStatus1, sendRetries)
 		}
 	}
 
-	// if one or more message failed to send, report the error
-	if err1 == awssqs.ErrOneOrMoreOperationsUnsuccessful {
-
-		// check the operation results
-		for ix, op := range opStatus {
-			if op == false {
-				log.Printf("WARNING: message %d failed to send to queue 1", ix)
-			}
-		}
+	if err1 != nil {
+		return err1
 	}
 
-	//	opStatus, err2 = aws.BatchMessagePut(queue2, batch)
-	//	if err2 != nil {
-	//		if err2 != awssqs.ErrOneOrMoreOperationsUnsuccessful {
-	//			return err2
-	//		}
-	//	}
-	//
-	//	// if one or more message failed to send, report the error
+	//opStatus2, err2 := aws.BatchMessagePut(queue2, batch)
+	//if err2 != nil {
+	//	// if an error we can handle, retry
 	//	if err2 == awssqs.ErrOneOrMoreOperationsUnsuccessful {
-	//
-	//		// check the operation results
-	//		for ix, op := range opStatus {
-	//			if op == false {
-	//				log.Printf("WARNING: message %d failed to send to queue 2", ix)
-	//			}
-	//		}
-	//	}
-	//
+	//		log.Printf("WARNING: one or more items failed to send to queue 2, retrying...")
 
-	// report that some of the messages were not processed
-	if err1 == awssqs.ErrOneOrMoreOperationsUnsuccessful {
-		//	if err1 == awssqs.ErrOneOrMoreOperationsUnsuccessful || err2 == awssqs.ErrOneOrMoreOperationsUnsuccessful {
-		return awssqs.ErrOneOrMoreOperationsUnsuccessful
-	}
+	//		// retry the failed items and bail out if we cannot retry
+	//		err2 = aws.MessagePutRetry(queue2, batch, opStatus2, sendRetries)
+	//	}
+	//}
+
+	//if err2 != nil {
+	//	return err2
+	//}
 
 	return nil
 }
