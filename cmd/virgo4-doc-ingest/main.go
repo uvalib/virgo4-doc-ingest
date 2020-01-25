@@ -28,11 +28,14 @@ func main() {
 	inQueueHandle, err := aws.QueueHandle(cfg.InQueueName)
 	fatalIfError(err)
 
-	outQueue1Handle, err := aws.QueueHandle(cfg.OutQueue1Name)
+	outQueueHandle, err := aws.QueueHandle(cfg.OutQueueName)
 	fatalIfError(err)
 
-	outQueue2Handle, err := aws.QueueHandle(cfg.OutQueue2Name)
-	fatalIfError(err)
+	var cacheQueueHandle awssqs.QueueHandle
+	if cfg.CacheQueueName != "" {
+		cacheQueueHandle, err = aws.QueueHandle(cfg.CacheQueueName)
+		fatalIfError(err)
+	}
 
 	// create the record channel
 	recordsChan := make(chan Record, cfg.WorkerQueueSize)
@@ -42,7 +45,7 @@ func main() {
 
 	// start workers here
 	for w := 1; w <= cfg.Workers; w++ {
-		go worker(w, *cfg, aws, outQueue1Handle, outQueue2Handle, recordsChan)
+		go worker(w, *cfg, aws, outQueueHandle, cacheQueueHandle, recordsChan)
 	}
 
 	for {
