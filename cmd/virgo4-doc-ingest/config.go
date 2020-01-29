@@ -8,10 +8,10 @@ import (
 
 // ServiceConfig defines all of the service configuration parameters
 type ServiceConfig struct {
-	InQueueName   string  // SQS queue name for inbound documents
-	OutQueueName string   // SQS queue name for outbound documents
+	InQueueName    string // SQS queue name for inbound documents
+	OutQueueName   string // SQS queue name for outbound documents
 	CacheQueueName string // SQS queue name for cache documents (typically records go to the cache)
-	PollTimeOut   int64   // the SQS queue timeout (in seconds)
+	PollTimeOut    int64  // the SQS queue timeout (in seconds)
 
 	//DataSourceName    string // the name to associate the data with. Each record has metadata showing this value
 	MessageBucketName string // the bucket to use for large messages
