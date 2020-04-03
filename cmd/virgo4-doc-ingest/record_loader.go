@@ -1,8 +1,9 @@
 package main
 
 import (
-	"bufio"
+
 	"bytes"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
@@ -12,8 +13,8 @@ import (
 	"github.com/antchfx/xmlquery"
 )
 
-var ErrBadRecord = fmt.Errorf("bad record encountered")
-var ErrBadRecordId = fmt.Errorf("bad record identifier")
+//var ErrBadRecord = fmt.Errorf("bad record encountered")
+//var ErrBadRecordId = fmt.Errorf("bad record identifier")
 var ErrMissingRecordId = fmt.Errorf("missing record identifier")
 var ErrFileNotOpen = fmt.Errorf("file is not open")
 
@@ -33,14 +34,19 @@ type Record interface {
 
 // this is our loader implementation
 type recordLoaderImpl struct {
-	File   *os.File
-	Reader *bufio.Reader
+	File    *os.File
+	Decoder *xml.Decoder
 }
 
 // this is our record implementation
 type recordImpl struct {
 	RawBytes []byte
 	RecordId string
+}
+
+// how we extract raw XML from the decoder
+type InnerXml struct {
+	Xml string `xml:",innerxml"`
 }
 
 // and the factory
@@ -51,9 +57,7 @@ func NewRecordLoader(filename string) (RecordLoader, error) {
 		return nil, err
 	}
 
-	reader := bufio.NewReader(file)
-
-	return &recordLoaderImpl{File: file, Reader: reader}, nil
+	return &recordLoaderImpl{File: file}, nil
 }
 
 // read all the records to ensure the file is valid
@@ -71,7 +75,7 @@ func (l *recordLoaderImpl) Validate() error {
 			log.Printf("WARNING: EOF on first read, looks like an empty file")
 			return nil
 		} else {
-			log.Printf("ERROR: validation failure on record index 0")
+			log.Printf("ERROR: validation failure on record index 0 (%s)", err.Error())
 			return err
 		}
 	}
@@ -88,7 +92,7 @@ func (l *recordLoaderImpl) Validate() error {
 			if err == io.EOF {
 				break
 			} else {
-				log.Printf("ERROR: validation failure on record index %d", recordIndex)
+				log.Printf("ERROR: validation failure on record index %d (%s)", recordIndex, err.Error())
 				return err
 			}
 		}
@@ -111,6 +115,8 @@ func (l *recordLoaderImpl) First() (Record, error) {
 		return nil, err
 	}
 
+	// wrap a new decoder around the file
+	l.Decoder = xml.NewDecoder(l.File)
 	return l.Next()
 }
 
@@ -138,30 +144,60 @@ func (l *recordLoaderImpl) Done() {
 
 func (l *recordLoaderImpl) recordRead() (Record, error) {
 
-	line, err := l.Reader.ReadString('\n')
+	rawXml, err := l.xmlRead()
 	if err != nil {
 		return nil, err
 	}
 
-	// remove the newline
-	line = strings.TrimSuffix(line, "\n")
+	//fmt.Printf( "%s", rawXml )
 
-	if len(line) == 0 {
-		return nil, ErrBadRecord
-	}
-
-	// attempt to extract the ID from the payload
-	id, err := l.extractId(line)
+	// attempt to extract the ID from the XML payload
+	id, err := l.extractId(rawXml)
 	if err != nil {
 		return nil, err
 	}
 
-	//if id[0] != 'u' {
-	//	log.Printf("ERROR: record id is suspect (%s)", id)
-	//	return nil, ErrBadRecordId
-	//}
+	return &recordImpl{RecordId: id, RawBytes: []byte(rawXml)}, nil
+}
 
-	return &recordImpl{RecordId: id, RawBytes: []byte(line)}, nil
+func (l *recordLoaderImpl) xmlRead() (string, error) {
+	
+	for {
+		// get the next token
+		t, err := l.Decoder.Token()
+
+		if err != nil {
+			return "", err
+		}
+
+		// check out the type of token, we just want start elements
+		switch se := t.(type) {
+		case xml.StartElement:
+
+			nodeName := se.Name.Local
+			
+			// basically ignore <add> tags
+			if nodeName == "add" {
+				continue
+			}
+			
+			// these are the ones we are interested in
+			if nodeName == "doc" {
+
+				// extract the inner XML from the doc element
+				var inner InnerXml
+				err = l.Decoder.DecodeElement(&inner, &se)
+				if err != nil {
+					return "", err
+				}
+
+				return fmt.Sprintf( "%s%s</doc>\n", l.reconstructXmlNodeText( se ), inner.Xml), nil
+			}
+
+		default:
+			//do nothing
+		}
+	}
 }
 
 func (l *recordLoaderImpl) extractId(buffer string) (string, error) {
@@ -179,6 +215,17 @@ func (l *recordLoaderImpl) extractId(buffer string) (string, error) {
 	}
 
 	return idNode.InnerText(), nil
+}
+
+func (l *recordLoaderImpl) reconstructXmlNodeText( token xml.StartElement ) string {
+
+	var builder strings.Builder
+	builder.WriteString( fmt.Sprintf( "<%s", token.Name.Local ))
+	for _, r := range token.Attr {
+		builder.WriteString( fmt.Sprintf(" %s=\"%s\"", r.Name.Local, r.Value ) )
+	}
+	builder.WriteString( ">")
+	return builder.String()
 }
 
 func (r *recordImpl) Id() string {
