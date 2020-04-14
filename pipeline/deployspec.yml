@@ -23,7 +23,10 @@ phases:
 
   build:
     commands:
-      - cd $CODEBUILD_SRC_DIR/terraform-infrastructure/virgo4.lib.virginia.edu/ecs-tasks/staging/virgo4-doc-ingest
+      - cd $CODEBUILD_SRC_DIR/terraform-infrastructure/virgo4.lib.virginia.edu/ecs-tasks/staging/virgo4-default-doc-ingest
+      - terraform init
+      - terraform apply -auto-approve
+      - cd $CODEBUILD_SRC_DIR/terraform-infrastructure/virgo4.lib.virginia.edu/ecs-tasks/staging/virgo4-image-doc-ingest
       - terraform init
       - terraform apply -auto-approve
 
