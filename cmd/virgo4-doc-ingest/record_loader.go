@@ -1,7 +1,6 @@
 package main
 
 import (
-
 	"bytes"
 	"encoding/xml"
 	"fmt"
@@ -13,12 +12,13 @@ import (
 	"github.com/antchfx/xmlquery"
 )
 
-//var ErrBadRecord = fmt.Errorf("bad record encountered")
-//var ErrBadRecordId = fmt.Errorf("bad record identifier")
+// ErrMissingRecordId - got a record without an identifier
 var ErrMissingRecordId = fmt.Errorf("missing record identifier")
+
+// ErrFileNotOpen - file is not open
 var ErrFileNotOpen = fmt.Errorf("file is not open")
 
-// the RecordLoader interface
+// RecordLoader - the interface
 type RecordLoader interface {
 	Validate() error
 	First() (Record, error)
@@ -26,7 +26,7 @@ type RecordLoader interface {
 	Done()
 }
 
-// the record interface
+// Record - the record interface
 type Record interface {
 	Id() string
 	Raw() []byte
@@ -45,11 +45,11 @@ type recordImpl struct {
 }
 
 // how we extract raw XML from the decoder
-type InnerXml struct {
+type innerXml struct {
 	Xml string `xml:",innerxml"`
 }
 
-// and the factory
+// NewRecordLoader - the factory
 func NewRecordLoader(filename string) (RecordLoader, error) {
 
 	file, err := os.Open(filename)
@@ -161,7 +161,7 @@ func (l *recordLoaderImpl) recordRead() (Record, error) {
 }
 
 func (l *recordLoaderImpl) xmlRead() (string, error) {
-	
+
 	for {
 		// get the next token
 		t, err := l.Decoder.Token()
@@ -175,23 +175,23 @@ func (l *recordLoaderImpl) xmlRead() (string, error) {
 		case xml.StartElement:
 
 			nodeName := se.Name.Local
-			
+
 			// basically ignore <add> tags
 			if nodeName == "add" {
 				continue
 			}
-			
+
 			// these are the ones we are interested in
 			if nodeName == "doc" {
 
 				// extract the inner XML from the doc element
-				var inner InnerXml
+				var inner innerXml
 				err = l.Decoder.DecodeElement(&inner, &se)
 				if err != nil {
 					return "", err
 				}
 
-				return fmt.Sprintf( "%s%s</doc>\n", l.reconstructXmlNodeText( se ), inner.Xml), nil
+				return fmt.Sprintf("%s%s</doc>\n", l.reconstructXmlNodeText(se), inner.Xml), nil
 			}
 
 		default:
@@ -217,14 +217,14 @@ func (l *recordLoaderImpl) extractId(buffer string) (string, error) {
 	return idNode.InnerText(), nil
 }
 
-func (l *recordLoaderImpl) reconstructXmlNodeText( token xml.StartElement ) string {
+func (l *recordLoaderImpl) reconstructXmlNodeText(token xml.StartElement) string {
 
 	var builder strings.Builder
-	builder.WriteString( fmt.Sprintf( "<%s", token.Name.Local ))
+	builder.WriteString(fmt.Sprintf("<%s", token.Name.Local))
 	for _, r := range token.Attr {
-		builder.WriteString( fmt.Sprintf(" %s=\"%s\"", r.Name.Local, r.Value ) )
+		builder.WriteString(fmt.Sprintf(" %s=\"%s\"", r.Name.Local, r.Value))
 	}
-	builder.WriteString( ">")
+	builder.WriteString(">")
 	return builder.String()
 }
 
