@@ -1,7 +1,8 @@
 #
 # build the target application
 #
-FROM public.ecr.aws/bitnami/golang:1.15 as builder
+#FROM public.ecr.aws/bitnami/golang:1.15 as builder
+FROM golang:1.15 as builder
 RUN apt-get -y update
 
 WORKDIR /build
