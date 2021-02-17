@@ -1,9 +1,8 @@
 #
 # build the target application
 #
-#FROM public.ecr.aws/bitnami/golang:1.15 as builder
-FROM golang:1.15 as builder
-RUN apt-get -y update
+FROM golang:1.16.0-alpine3.13 as builder
+RUN apk update && apk upgrade && apk add make
 
 WORKDIR /build
 COPY go.mod go.sum Makefile ./
