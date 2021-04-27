@@ -15,6 +15,9 @@ import (
 // ErrMissingRecordId - got a record without an identifier
 var ErrMissingRecordId = fmt.Errorf("missing record identifier")
 
+// ErrBlankRecordId - got a blank identifier
+var ErrBlankRecordId = fmt.Errorf("blank/empty record identifier")
+
 // ErrFileNotOpen - file is not open
 var ErrFileNotOpen = fmt.Errorf("file is not open")
 
@@ -214,7 +217,13 @@ func (l *recordLoaderImpl) extractId(buffer string) (string, error) {
 		return "", ErrMissingRecordId
 	}
 
-	return idNode.InnerText(), nil
+	// make sure the ID is not empty
+	id := strings.TrimSpace(idNode.InnerText())
+	if len(id) == 0 {
+		return "", ErrBlankRecordId
+	}
+
+	return id, nil
 }
 
 func (l *recordLoaderImpl) reconstructXmlNodeText(token xml.StartElement) string {
