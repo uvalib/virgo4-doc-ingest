@@ -32,7 +32,7 @@ func worker(id int, config ServiceConfig, aws awssqs.AWS_SQS, outQueue awssqs.Qu
 		// did we timeout, if not we have a message to process
 		if timeout == false {
 
-			messages = append(messages, constructMessage(record))
+			messages = append(messages, constructMessage(record, config.DataSourceName))
 
 			// have we reached a block size limit
 			if count != 0 && count%awssqs.MAX_SQS_BLOCK_COUNT == awssqs.MAX_SQS_BLOCK_COUNT-1 {
@@ -72,14 +72,16 @@ func worker(id int, config ServiceConfig, aws awssqs.AWS_SQS, outQueue awssqs.Qu
 	// should never get here
 }
 
-func constructMessage(record Record) awssqs.Message {
+func constructMessage(record Record, datasource string) awssqs.Message {
 
 	//payload := fmt.Sprintf( xmlDocFormatter, id )
 	attributes := make([]awssqs.Attribute, 0, 4)
 	attributes = append(attributes, awssqs.Attribute{Name: awssqs.AttributeKeyRecordId, Value: record.Id()})
 	attributes = append(attributes, awssqs.Attribute{Name: awssqs.AttributeKeyRecordType, Value: awssqs.AttributeValueRecordTypeXml})
 	attributes = append(attributes, awssqs.Attribute{Name: awssqs.AttributeKeyRecordOperation, Value: awssqs.AttributeValueRecordOperationUpdate})
-	//attributes = append(attributes, awssqs.Attribute{Name: awssqs.AttributeKeyRecordSource, Value: datasource})
+	if len(datasource) != 0 {
+		attributes = append(attributes, awssqs.Attribute{Name: awssqs.AttributeKeyRecordSource, Value: datasource})
+	}
 	return awssqs.Message{Attribs: attributes, Payload: record.Raw()}
 }
 

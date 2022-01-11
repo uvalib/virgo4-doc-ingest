@@ -13,7 +13,7 @@ type ServiceConfig struct {
 	CacheQueueName string // SQS queue name for cache documents (typically records go to the cache)
 	PollTimeOut    int64  // the SQS queue timeout (in seconds)
 
-	//DataSourceName    string // the name to associate the data with. Each record has metadata showing this value
+	DataSourceName    string // the name to associate the data with. Each record has metadata showing this value
 	MessageBucketName string // the bucket to use for large messages
 	DownloadDir       string // the S3 file download directory (local)
 
@@ -69,10 +69,10 @@ func LoadConfiguration() *ServiceConfig {
 	var cfg ServiceConfig
 
 	cfg.InQueueName = ensureSetAndNonEmpty("VIRGO4_DOC_INGEST_IN_QUEUE")
-	cfg.OutQueueName = ensureSetAndNonEmpty("VIRGO4_DOC_INGEST_OUT_QUEUE_1")
-	cfg.CacheQueueName = envWithDefault("VIRGO4_DOC_INGEST_OUT_QUEUE_2", "")
+	cfg.OutQueueName = ensureSetAndNonEmpty("VIRGO4_DOC_INGEST_OUT_QUEUE")
+	cfg.CacheQueueName = envWithDefault("VIRGO4_DOC_INGEST_CACHE_QUEUE", "")
 	cfg.PollTimeOut = int64(envToInt("VIRGO4_DOC_INGEST_QUEUE_POLL_TIMEOUT"))
-	//cfg.DataSourceName = ensureSetAndNonEmpty("VIRGO4_DOC_INGEST_DATA_SOURCE")
+	cfg.DataSourceName = ensureSetAndNonEmpty("VIRGO4_DOC_INGEST_DATA_SOURCE")
 	cfg.MessageBucketName = ensureSetAndNonEmpty("VIRGO4_SQS_MESSAGE_BUCKET")
 	cfg.DownloadDir = ensureSetAndNonEmpty("VIRGO4_DOC_INGEST_DOWNLOAD_DIR")
 	cfg.WorkerQueueSize = envToInt("VIRGO4_DOC_INGEST_WORK_QUEUE_SIZE")
@@ -82,7 +82,7 @@ func LoadConfiguration() *ServiceConfig {
 	log.Printf("[CONFIG] OutQueueName         = [%s]", cfg.OutQueueName)
 	log.Printf("[CONFIG] CacheQueueName       = [%s]", cfg.CacheQueueName)
 	log.Printf("[CONFIG] PollTimeOut          = [%d]", cfg.PollTimeOut)
-	//log.Printf("[CONFIG] DataSourceName       = [%s]", cfg.DataSourceName)
+	log.Printf("[CONFIG] DataSourceName       = [%s]", cfg.DataSourceName)
 	log.Printf("[CONFIG] MessageBucketName    = [%s]", cfg.MessageBucketName)
 	log.Printf("[CONFIG] DownloadDir          = [%s]", cfg.DownloadDir)
 	log.Printf("[CONFIG] WorkerQueueSize      = [%d]", cfg.WorkerQueueSize)
